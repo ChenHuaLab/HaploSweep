@@ -1,8 +1,7 @@
 #ifndef IHS_SOFT_H_INCLUDED
 #define IHS_SOFT_H_INCLUDED
 
-#include "myfunction.h"
-#include "myutil.h"
+#include "myfunc.h"
 
 #define max_line_length 1000000000
 

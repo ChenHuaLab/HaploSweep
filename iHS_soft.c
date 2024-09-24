@@ -1,5 +1,8 @@
 #include "iHS_soft.h"
 
+long starts_thread[20000];
+long ends_thread[20000];
+//--
 int tabs[1000000];
 int64_t *all_processed_locus;
 double *norm_min_value_array;
@@ -15,6 +18,22 @@ double *norm_uiHSL_avarage;
 double *norm_uiHSL_variance;
 Hash_si *norm_freq_index;
 AList_d *norm_all_freqs;
+
+//====================================
+
+void split_span_for_threads(int thread_num, long start, long end){
+    long sp=(end-start)/(long)thread_num;
+    long last=(end-start)%(long)thread_num;
+    long s, e=start;
+    int t;
+    for(t=0;t<thread_num;t++){
+        s=e;
+        e=s+sp;
+        if(t<last) e++;
+        starts_thread[t]=s;
+        ends_thread[t]=e;
+    }
+}
 
 //====================================
 
@@ -65,12 +84,12 @@ int main_process1(int argc, char **argv){
     all_processed_locus=calloc(thread_num, sizeof(int64_t));
     pool=new_thread_pool(thread_num);
     split_span_for_threads(thread_num, 0, (n_locs-2*window_radius));
-    for(i=0;i<thread_num;i++) thread_pool_add_worker(pool, run_one1, i);
+    for(i=0;i<thread_num;i++) thread_pool_add_worker(pool, (void *(*)(void *))run_one1, (void *)i);
     thread_pool_invoke_all(pool);
     mylog("calculating all lucus...");
     for(i=0;i<thread_num;i++){
-        AList_i *locus=all_processed_locus[i];
-        for(j=0;j<locus->size;j++) thread_pool_add_worker(pool, run_one2, locus->elementData[j]);
+        AList_i *locus=(AList_i *)all_processed_locus[i];
+        for(j=0;j<locus->size;j++) thread_pool_add_worker(pool, (void *(*)(void *))run_one2, (void *)locus->elementData[j]);
         free_alist_i(locus);
     }
     free(all_processed_locus);
@@ -255,21 +274,21 @@ int main_process2(int argc, char **argv){
 
     for(i=0;i<l_norm_data;i++){
         NormData data=norm_data[i];
-        AList_i *list=norm_talbe[data.num_1];
+        AList_i *list=(AList_i *)norm_talbe[data.num_1];
         if(list==NULL) list=new_alist_i(16);
         alist_i_add(list, i);
-        norm_talbe[data.num_1]=list;
+        norm_talbe[data.num_1]=(int64_t)list;
     }
 
     ThreadPool *pool=new_thread_pool(thread_num);
 
     mylog("calculating all rates' average and variance...");
-    for(i=0;i<n_sample;i++) thread_pool_add_worker(pool, calculate_all_average_variance_one, i);
+    for(i=0;i<n_sample;i++) thread_pool_add_worker(pool, (void *(*)(void *))calculate_all_average_variance_one, (void *)i);
     thread_pool_invoke_all(pool);
 
     mylog("calculating all locus...");
     split_span_for_threads(thread_num, 0, l_norm_data);
-    for(i=0;i<thread_num;i++) thread_pool_add_worker(pool, norm_calculate_one, i);
+    for(i=0;i<thread_num;i++) thread_pool_add_worker(pool, (void *(*)(void *))norm_calculate_one, (void *)i);
     thread_pool_invoke_all(pool);
 
     free_thread_pool(pool);
@@ -385,14 +404,14 @@ void read_hap(){
             exit(0);
         }
         n_sample++;
-        alist_l_add(list, str_copy_with_len(sb->str, sb->size));
+        alist_l_add(list, (int64_t)str_copy_with_len(sb->str, sb->size));
     }
     free_s_builder(sb);
     gz_stream_destory(gz1);
 
     data=my_new(n_locs*n_sample, sizeof(char));
     for(i=0;i<n_sample;i++){
-        char *str=list->elementData[i];
+        char *str=(char *)list->elementData[i];
         for(j=0;j<n_locs;j++) set_data(j, i, str[j]);
         free(str);
     }
@@ -415,7 +434,7 @@ void read_vcf(){
         len=chmop_with_len(line, len);
         //--
         if(line[0]=='#') continue;
-        num=str_tab_index(line, '\t', tabs, 0);
+        num=str_tab_index(line, '\t', tabs);
         if(num<10){
             fprintf(stderr, "error data line: %s\n", line);
             exit(0);
@@ -463,7 +482,7 @@ void read_map(){
         for(i=0;i<len;i++){
             if(line[i]==' ') line[i]='\t';
         }
-        num=str_tab_index(line, '\t', tabs, 0);
+        num=str_tab_index(line, '\t', tabs);
         if(num<4){
             fprintf(stderr, "error map line: %s\n", line);
             exit(0);
@@ -529,7 +548,7 @@ void read_tped(){
         for(i=0;i<len;i++){
             if(line[i]==' ') line[i]='\t';
         }
-        num=str_tab_index(line, '\t', tabs, 0);
+        num=str_tab_index(line, '\t', tabs);
         if(num<6){
             fprintf(stderr, "error data line: %s\n", line);
             exit(0);
@@ -597,7 +616,7 @@ void run_one1(int i){
     int end=window_radius+ends_thread[i];
 
     AList_i *locus=new_alist_i(16);
-    all_processed_locus[i]=locus;
+    all_processed_locus[i]=(int64_t)locus;
 
     for(i=start;i<end;i++){
         if(region_start!=-1 && region_end!=-1){
@@ -747,7 +766,7 @@ int calculate_EHH(int locus, AList_i *list, double *res_iHH, AList_i *poss, ALis
     int cur_locus=locus;
     char *seq=my_new(size+1, sizeof(char));
     for(i=0;i<size;i++) seq[i]='1';
-    alist_l_add(seqs, seq);
+    alist_l_add(seqs, (int64_t)seq);
     alist_d_add(ehhs_left, 1.0);
     //--
     while(1){
@@ -764,17 +783,17 @@ int calculate_EHH(int locus, AList_i *list, double *res_iHH, AList_i *poss, ALis
         else{
             AList_l *tmp=new_alist_l(16);
             for(i=0;i<seqs->size;i++){
-                char *s2=seqs->elementData[i];
+                char *s2=(char *)seqs->elementData[i];
                 char *left=my_new(size+1, sizeof(char));
                 char *right=my_new(size+1, sizeof(char));
                 seq_and_nor_and(s2, s1, size, left, right, &left_1, &right_1);
                 if(left_1>1){
                     ehh+=((left_1*(left_1-1))/2.0);
-                    alist_l_add(tmp, left);
+                    alist_l_add(tmp, (int64_t)left);
                 }else free(left);
                 if(right_1>1){
                     ehh+=((right_1*(right_1-1))/2.0);
-                    alist_l_add(tmp, right);
+                    alist_l_add(tmp, (int64_t)right);
                 }else free(right);
                 free(s2);
             }
@@ -793,7 +812,7 @@ int calculate_EHH(int locus, AList_i *list, double *res_iHH, AList_i *poss, ALis
     seqs=new_alist_l(16);
     seq=my_new(size+1, sizeof(char));
     for(i=0;i<size;i++) seq[i]='1';
-    alist_l_add(seqs, seq);
+    alist_l_add(seqs, (int64_t)seq);
     alist_d_add(ehhs_right, 1.0);
     //--
     while(1){
@@ -811,17 +830,17 @@ int calculate_EHH(int locus, AList_i *list, double *res_iHH, AList_i *poss, ALis
         else{
             AList_l *tmp=new_alist_l(16);
             for(i=0;i<seqs->size;i++){
-                char *s2=seqs->elementData[i];
+                char *s2=(char *)seqs->elementData[i];
                 char *left=my_new(size+1, sizeof(char));
                 char *right=my_new(size+1, sizeof(char));
                 seq_and_nor_and(s2, s1, size, left, right, &left_1, &right_1);
                 if(left_1>1){
                     ehh+=((left_1*(left_1-1))/2.0);
-                    alist_l_add(tmp, left);
+                    alist_l_add(tmp, (int64_t)left);
                 }else free(left);
                 if(right_1>1){
                     ehh+=((right_1*(right_1-1))/2.0);
-                    alist_l_add(tmp, right);
+                    alist_l_add(tmp, (int64_t)right);
                 }else free(right);
                 free(s2);
             }
@@ -919,7 +938,7 @@ void seq_and_nor_and(char *s1, char *s2, int size, char *left, char *right, int 
 void free_string_list(AList_l *list){
     int i;
     for(i=0;i<list->size;i++){
-        char *str=list->elementData[i];
+        char *str=(char *)list->elementData[i];
         free(str);
     }
     free_alist_l(list);
@@ -950,7 +969,7 @@ int calculate_group_EHH(int locus, AList_i *sub_sample_indexes, double *res_iHH,
         Entry_dup *e=put_hash_seqs(table, l_table, seq, l_seq, index);
         alist_i_add(indexes, e->index);
         if(e->freq==1){
-            alist_l_add(seqs, e);
+            alist_l_add(seqs, (int64_t)e);
             index++;
         }
         //--
@@ -984,7 +1003,7 @@ int calculate_group_EHH(int locus, AList_i *sub_sample_indexes, double *res_iHH,
             distances[i*size+j]=sub_distances[ii*l_seqs+jj];
         }
     }
-    for(i=0;i<l_table;i++) free_entry_dup(table[i]);
+    for(i=0;i<l_table;i++) free_entry_dup((Entry_dup *)table[i]);
     free(sub_distances);
     free_alist_i(indexes);
 
@@ -996,7 +1015,7 @@ int calculate_group_EHH(int locus, AList_i *sub_sample_indexes, double *res_iHH,
     for(i=0;i<size;i++){
         int *dis=distances+(i*size);
         for(j=0;j<size;j++) sprintf(tmps[j], "%d\t%d", j, dis[j]);
-        java_sort_void(tmps, 0, size, compare_string);
+        java_sort_void(tmps, 0, size, (int (*)(void *, void *))compare_string);
         char *flag=my_new(size, sizeof(char));
         for(j=0;j<R;j++){
             char *str=tmps[j];
@@ -1015,7 +1034,7 @@ int calculate_group_EHH(int locus, AList_i *sub_sample_indexes, double *res_iHH,
         copy[l_copy]='\0';
         //--
         Entry_dup *e=put_hash_seqs(table, l_table, copy, l_copy, 0);
-        if(e->freq==1) alist_l_add(seqs, e);
+        if(e->freq==1) alist_l_add(seqs, (int64_t)e);
         //--
         free(copy);
         free(flag);
@@ -1028,7 +1047,7 @@ int calculate_group_EHH(int locus, AList_i *sub_sample_indexes, double *res_iHH,
 
     int *tmp_tabs=my_new(2*R, sizeof(int));
     for(i=0;i<seqs->size;i++){
-        Entry_dup *e=seqs->elementData[i];
+        Entry_dup *e=(Entry_dup *)seqs->elementData[i];
         AList_i *sub_list=new_alist_i(R);
         AList_i *sub_indexes=string_2_alist_i(e->seq, tmp_tabs);
         for(j=0;j<sub_indexes->size;j++){
@@ -1036,10 +1055,10 @@ int calculate_group_EHH(int locus, AList_i *sub_sample_indexes, double *res_iHH,
             alist_i_add(sub_list, sub_sample_indexes->elementData[sub_index]);
         }
         free_alist_i(sub_indexes);
-        alist_l_add(lists, sub_list);
+        alist_l_add(lists, (int64_t)sub_list);
         alist_i_add(lists_freq, e->freq);
     }
-    for(i=0;i<l_table;i++) free_entry_dup(table[i]);
+    for(i=0;i<l_table;i++) free_entry_dup((Entry_dup *)table[i]);
     free(table);
     free(tmp_tabs);
     free_alist_l(seqs);
@@ -1050,7 +1069,7 @@ int calculate_group_EHH(int locus, AList_i *sub_sample_indexes, double *res_iHH,
     AList_l *lists_poss=new_alist_l(lists->size);
     AList_l *lists_ehhs=new_alist_l(lists->size);
     for(i=0;i<lists->size;i++){
-        AList_i *list=lists->elementData[i];
+        AList_i *list=(AList_i *)lists->elementData[i];
         int freq=lists_freq->elementData[i];
         //--
         double iHH;
@@ -1063,8 +1082,8 @@ int calculate_group_EHH(int locus, AList_i *sub_sample_indexes, double *res_iHH,
         if(min_locus>min) min_locus=min;
         if(max_locus<max) max_locus=max;
         //--
-        alist_l_add(lists_poss, tmp_poss);
-        alist_l_add(lists_ehhs, tmp_ehhs);
+        alist_l_add(lists_poss, (int64_t)tmp_poss);
+        alist_l_add(lists_ehhs, (int64_t)tmp_ehhs);
         free_alist_i(list);
     }
     free_alist_l(lists);
@@ -1074,8 +1093,8 @@ int calculate_group_EHH(int locus, AList_i *sub_sample_indexes, double *res_iHH,
         double *array=my_new(l_array, sizeof(double));
         for(i=0;i<lists_freq->size;i++){
             int freq=lists_freq->elementData[i];
-            AList_i *tmp_poss=lists_poss->elementData[i];
-            AList_d *tmp_ehhs=lists_ehhs->elementData[i];
+            AList_i *tmp_poss=(AList_i *)lists_poss->elementData[i];
+            AList_d *tmp_ehhs=(AList_d *)lists_ehhs->elementData[i];
             for(j=0;j<tmp_poss->size;j++){
                 int cur_locus=tmp_poss->elementData[j];
                 double cur_ehh=tmp_ehhs->elementData[j];
@@ -1090,8 +1109,8 @@ int calculate_group_EHH(int locus, AList_i *sub_sample_indexes, double *res_iHH,
         free(array);
     }
     for(i=0;i<lists_poss->size;i++){
-        free_alist_i(lists_poss->elementData[i]);
-        free_alist_d(lists_ehhs->elementData[i]);
+        free_alist_i((AList_i *)lists_poss->elementData[i]);
+        free_alist_d((AList_d *)lists_ehhs->elementData[i]);
     }
     free_alist_l(lists_poss);
     free_alist_l(lists_ehhs);
@@ -1115,13 +1134,13 @@ Entry_dup *put_hash_seqs(int64_t *table, int l_table, char *seq, int l_seq, int 
         exit(0);
     }
 
-    Entry_dup *e=table[h_index];
+    Entry_dup *e=(Entry_dup *)table[h_index];
     while(e){
         if(e->hash==hash && e->l_seq==l_seq && memcmp(e->seq, seq, l_seq)==0){
             e->freq++;
             return e;
         }
-        e=e->next;
+        e=(Entry_dup *)e->next;
     }
     e=my_new(1, sizeof(Entry_dup));
     e->hash=hash;
@@ -1130,7 +1149,7 @@ Entry_dup *put_hash_seqs(int64_t *table, int l_table, char *seq, int l_seq, int 
     e->index=index;
     e->freq=1;
     e->next=table[h_index];
-    table[h_index]=e;
+    table[h_index]=(int64_t)e;
     return e;
 }
 
@@ -1164,7 +1183,7 @@ int hamming_distance(char *s1, char *s2, int size){
 }
 
 AList_i *string_2_alist_i(char *str, int *tabs){
-    int i, num=str_tab_index(str, '\t', tabs, 0);
+    int i, num=str_tab_index(str, '\t', tabs);
     AList_i *list=new_alist_i(num);
     for(i=0;i<num;i++) str[tabs[i]]='\0';
     alist_i_add(list, atoi(str));
@@ -1283,18 +1302,18 @@ AList_l *get_all_calc_results_file(){
     AList_l *list1=get_file_list(norm_input_dir);
     AList_l *list2=new_alist_l(list1->size);
     for(i=0;i<list1->size;i++){
-        char *file=list1->elementData[i];
+        char *file=(char *)list1->elementData[i];
         char *chr=get_file_chr(file);
         int len=sprintf(loginfo, "%s\t%s", file, chr);
-        alist_l_add(list2, str_copy_with_len(loginfo, len));
+        alist_l_add(list2, (int64_t)str_copy_with_len(loginfo, len));
         free(file);
         free(chr);
     }
     free_alist_l(list1);
 
-    if(list2->size>1) java_sort_void(list2->elementData, 0, list2->size, compare_chr);
+    if(list2->size>1) java_sort_void(list2->elementData, 0, list2->size, (int (*)(void *, void *))compare_chr);
     for(i=0;i<list2->size;i++){
-        char *str=list2->elementData[i];
+        char *str=(char *)list2->elementData[i];
         j=0;
         while(str[++j]!='\t');
         str[j]='\0';
@@ -1311,7 +1330,7 @@ char *get_file_chr(char *file){
     GzStream *gz1=gz_stream_open(file, "r");
 
     gz_read_util(gz1, '\n', line, maxline, &len);
-    num=str_tab_index(line, '\t', tabs, 0);
+    num=str_tab_index(line, '\t', tabs);
     for(i=0;i<num;i++) line[tabs[i]]='\0';
 
     index=-1;
@@ -1327,7 +1346,7 @@ char *get_file_chr(char *file){
     }
 
     gz_read_util(gz1, '\n', line, maxline, &len);
-    num=str_tab_index(line, '\t', tabs, 0);
+    num=str_tab_index(line, '\t', tabs);
     for(i=0;i<num;i++) line[tabs[i]]='\0';
 
     gz_stream_destory(gz1);
@@ -1408,7 +1427,7 @@ int get_file_header_index(char *file, char *element){
     GzStream *gz1=gz_stream_open(file, "r");
 
     gz_read_util(gz1, '\n', line, maxline, &len);
-    num=str_tab_index(line, '\t', tabs, 0);
+    num=str_tab_index(line, '\t', tabs);
     for(i=0;i<num;i++) line[tabs[i]]='\0';
 
     gz_stream_destory(gz1);
@@ -1440,7 +1459,7 @@ void read_norm_data(AList_l *files){
     int f_index=0;
 
     for(i=0;i<files->size;i++){
-        char *file=files->elementData[i];
+        char *file=(char *)files->elementData[i];
         sprintf(loginfo, "reading %s...", file);mylog(loginfo);
         //--
         int index1=get_file_header_index(file, "uiHS");
@@ -1463,7 +1482,7 @@ void read_norm_data(AList_l *files){
                 l_norm_data+=span;
             }
             //--
-            num=str_tab_index(line, '\t', tabs, 0);
+            num=str_tab_index(line, '\t', tabs);
             for(j=0;j<num;j++) line[tabs[j]]='\0';
             //--
             if(atof(line+tabs[index5-1]+1)==0.0 || atof(line+tabs[index6-1]+1)==0.0 || atof(line+tabs[index7-1]+1)==0.0 || atof(line+tabs[index8-1]+1)==0.0) continue;
@@ -1513,7 +1532,7 @@ void calculate_all_average_variance_one(int index){
     AList_i *pos= new_alist_i(16);
 
     for(i=0;i<n_sample;i++){
-        AList_i *list=norm_talbe[i];
+        AList_i *list=(AList_i *)norm_talbe[i];
         double d=norm_all_freqs->elementData[i];
         if(fabs(d-current)>(norm_bin_size/2.0)) continue;
         for(j=0;j<list->size;j++){
