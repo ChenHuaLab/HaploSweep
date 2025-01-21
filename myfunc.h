@@ -105,13 +105,13 @@ extern "C" {
 #define set_matrix3(matrix,dim2,dim3,i,j,k,value) ({matrix[(i)*(dim2)*(dim3)+(j)*(dim3)+(k)]=(value);})
 #define get_matrix3(matrix,dim2,dim3,i,j,k) (matrix[(i)*(dim2)*(dim3)+(j)*(dim3)+(k)])
 
-char loginfo[1000001];
-char line[maxline+1];
-int l_line;
-int l_cache_length;
-int *arr_i_increase;
-int64_t *arr_l_increase;
-double *arr_d_increase;
+extern char loginfo[1000001];
+extern char line[maxline+1];
+extern int l_line;
+extern int l_cache_length;
+extern int *arr_i_increase;
+extern int64_t *arr_l_increase;
+extern double *arr_d_increase;
 
 //===========================================================
 
@@ -958,11 +958,11 @@ void free_thread_pool(ThreadPool *p);
 //===========================================================
 //=============== global variables
 //-- (producer-consumer) for read and write file
-Queue *queue_for_read_file;
-Queue *queue_for_write_file;
+extern Queue *queue_for_read_file;
+extern Queue *queue_for_write_file;
 //--
-int thread_num;
-ThreadPool *thread_pool;
+extern int thread_num;
+extern ThreadPool *thread_pool;
 //===========================================================
 
 #ifdef __cplusplus
@@ -970,5 +970,3 @@ ThreadPool *thread_pool;
 #endif
 
 #endif // MYFUNC_H_INCLUDED
-
-
